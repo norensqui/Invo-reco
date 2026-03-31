@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Invoice Reconciliation — QBO ↔ ServiceTitan</title>
+
+<!-- SheetJS: reads .xlsx/.xls in-browser -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- ExcelJS: writes styled .xlsx in-browser -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+<!-- FileSaver: download trigger -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy:#0f2243;--blue:#1a56a8;--sky:#3d8bdb;--accent:#2dd4bf;
+  --danger:#dc2626;--warn:#d97706;--success:#16a34a;
+  --surface:#f4f6fb;--card:#fff;--border:#d5dde8;--text:#1e2a3a;--muted:#6b7a90;
+  --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
+  --r:8px;--sh:0 2px 12px rgba(15,34,67,.10);
+}
+body{font-family:var(--sans);background:var(--surface);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+
+/* ── Header ── */
+header{background:var(--navy);padding:0 2.5rem;height:62px;display:flex;align-items:center;gap:1rem;position:sticky;top:0;z-index:100;box-shadow:0 2px 16px rgba(0,0,0,.25)}
+.logo{width:34px;height:34px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:600;font-size:14px;color:var(--navy);flex-shrink:0}
+header h1{font-size:1rem;font-weight:600;color:#fff;letter-spacing:.02em}
+.hbadge{font-family:var(--mono);font-size:.65rem;color:rgba(255,255,255,.4);margin-left:auto;text-align:right;line-height:1.5}
+
+/* ── Layout ── */
+main{flex:1;max-width:980px;width:100%;margin:0 auto;padding:2.5rem 1.5rem 5rem;display:flex;flex-direction:column;gap:2rem}
+.sl{font-family:var(--mono);font-size:.67rem;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--blue);margin-bottom:.7rem}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh);padding:1.75rem 2rem}
+
+/* ── Note ── */
+.note{background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:.8rem 1rem;font-size:.78rem;color:#1e40af;display:flex;gap:.6rem;align-items:flex-start;line-height:1.55}
+
+/* ── Upload ── */
+.ugrid{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem}
+@media(max-width:580px){.ugrid{grid-template-columns:1fr}}
+.uz{border:2px dashed var(--border);border-radius:var(--r);padding:1.5rem 1.25rem;display:flex;flex-direction:column;align-items:center;gap:.6rem;cursor:pointer;transition:border-color .2s,background .2s;position:relative;min-height:145px;justify-content:center}
+.uz:hover,.uz.dov{border-color:var(--sky);background:#f0f7ff}
+.uz.ok{border-color:var(--success);border-style:solid;background:#f0fdf6}
+.uz input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.zi{font-size:2.2rem;line-height:1;color:var(--muted)}
+.uz.ok .zi{color:var(--success)}
+.zt{font-size:.82rem;font-weight:600;color:var(--text);text-align:center}
+.zh{font-size:.7rem;color:var(--muted);text-align:center;line-height:1.55}
+.zf{font-family:var(--mono);font-size:.68rem;color:var(--success);background:#dcfce7;border-radius:4px;padding:2px 9px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:none}
+.uz.ok .zf{display:block}
+
+/* ── Buttons ── */
+.brow{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.5rem;border-radius:6px;font-family:var(--sans);font-size:.85rem;font-weight:600;cursor:pointer;border:none;transition:all .15s;text-decoration:none;white-space:nowrap}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
+.bp{background:var(--blue);color:#fff;box-shadow:0 2px 8px rgba(26,86,168,.3)}
+.bp:hover{background:#1648a0}
+.ba{background:var(--accent);color:var(--navy);box-shadow:0 2px 8px rgba(45,212,191,.3)}
+.ba:hover{background:#22c9b5}
+
+/* ── Status ── */
+#sp{display:none}
+#sp.vis{display:block}
+.sm{padding:.85rem 1.1rem;border-radius:6px;font-size:.82rem;font-weight:500;display:flex;align-items:center;gap:.65rem;margin-bottom:1.25rem}
+.sm.proc{background:#eff6ff;color:var(--blue);border:1px solid #bfdbfe}
+.sm.done{background:#f0fdf4;color:#166534;border:1px solid #86efac}
+.sm.fail{background:#fff1f2;color:#991b1b;border:1px solid #fca5a5}
+.spin{width:16px;height:16px;border:2px solid rgba(26,86,168,.18);border-top-color:var(--blue);border-radius:50%;animation:sp .7s linear infinite;flex-shrink:0}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ── Stats ── */
+.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:.85rem}
+.sc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:.95rem 1.1rem;display:flex;flex-direction:column;gap:.25rem}
+.sv{font-family:var(--mono);font-size:1.5rem;font-weight:600;color:var(--navy);line-height:1}
+.sl2{font-size:.67rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.sc.ok .sv{color:var(--success)}
+.sc.warn .sv{color:var(--warn)}
+.sc.bad .sv{color:var(--danger)}
+.sc.info .sv{color:var(--blue)}
+
+/* ── Warnings ── */
+#ws{display:none;margin-top:1rem}
+#ws.vis{display:block}
+.wl{background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:.85rem 1rem;font-size:.78rem;color:#92400e}
+.wl li{margin-left:1.25rem;margin-top:.25rem}
+
+/* ── Download ── */
+#ds{display:none}
+#ds.vis{display:block}
+.db{background:linear-gradient(135deg,#0f2243 0%,#1a56a8 100%);border-radius:var(--r);padding:1.5rem 2rem;display:flex;align-items:center;justify-content:space-between;gap:1.5rem;flex-wrap:wrap}
+.db h3{color:#fff;font-size:1rem;margin-bottom:.2rem}
+.db p{color:rgba(255,255,255,.6);font-size:.78rem}
+
+/* ── Legend ── */
+.legend{margin-top:1.25rem;display:flex;flex-wrap:wrap;gap:.5rem}
+.ltag{display:inline-flex;align-items:center;gap:.35rem;padding:.25rem .7rem;border-radius:20px;font-size:.7rem;font-weight:600}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">IR</div>
+  <h1>Invoice Reconciliation</h1>
+  <div class="hbadge">QBO ↔ ServiceTitan<br>Runs entirely in your browser</div>
+</header>
+
+<main>
+
+  <div class="note">
+    🔒 <span>This tool runs <strong>100% in your browser</strong> — no server, no installation, no data ever leaves your computer. Works locally or from GitHub Pages.</span>
+  </div>
+
+  <!-- 01 Upload -->
+  <div>
+    <div class="sl">01 — Upload Files</div>
+    <div class="card">
+      <div class="ugrid">
+        <div class="uz" id="zq"
+             ondragover="dov(event,'zq')" ondragleave="duv(event,'zq')"
+             ondrop="dp(event,'zq','iq','qbo')">
+          <input type="file" id="iq" accept=".xlsx,.xls"
+                 onchange="pick(this,'zq','fq','qbo')">
+          <div class="zi">📊</div>
+          <div class="zt">QuickBooks Online Export</div>
+          <div class="zh">Invoice List by Customer with Tax<br>Required columns: Date · Num · Tax amount · Amount</div>
+          <div class="zf" id="fq"></div>
+        </div>
+        <div class="uz" id="zs"
+             ondragover="dov(event,'zs')" ondragleave="duv(event,'zs')"
+             ondrop="dp(event,'zs','is_','st')">
+          <input type="file" id="is_" accept=".xlsx,.xls"
+                 onchange="pick(this,'zs','fs','st')">
+          <div class="zi">🔧</div>
+          <div class="zt">ServiceTitan Export</div>
+          <div class="zh">Invoice Detail by Date<br>Required: Invoice # · Invoice Status · Subtotal · Tax · Total</div>
+          <div class="zf" id="fs"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 02 Run -->
+  <div>
+    <div class="sl">02 — Run Reconciliation</div>
+    <div class="card">
+      <div class="brow">
+        <button class="btn bp" id="br" disabled onclick="runRecon()">▶ Run Reconciliation</button>
+        <span id="rh" style="font-size:.78rem;color:var(--muted)">Upload both files to begin.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 03 Results -->
+  <div id="sp">
+    <div class="sl">03 — Results</div>
+    <div class="card">
+      <div id="mb"></div>
+      <div class="sgrid" id="sg" style="display:none"></div>
+      <div id="ws"><ul class="wl" id="wl"></ul></div>
+      <div class="legend" id="leg" style="display:none">
+        <span class="ltag" style="background:#FEE2E2;color:#991B1B">● Both Difference</span>
+        <span class="ltag" style="background:#FEF9C3;color:#854D0E">● Tax Difference</span>
+        <span class="ltag" style="background:#FFEDD5;color:#9A3412">● Amount Difference</span>
+        <span class="ltag" style="background:#DBEAFE;color:#1E40AF">● Missing in QBO</span>
+        <span class="ltag" style="background:#EDE9FE;color:#5B21B6">● Missing in ST</span>
+        <span class="ltag" style="background:#FEF3C7;color:#92400E">● Review</span>
+        <span class="ltag" style="background:#DCFCE7;color:#166534">● Exact Match</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 04 Download -->
+  <div id="ds">
+    <div class="sl">04 — Download Output</div>
+    <div class="db">
+      <div>
+        <h3>Reconciliation File Ready</h3>
+        <p id="dlp">Tax Recon + Total Amount Recon sheets</p>
+      </div>
+      <button class="btn ba" onclick="downloadFile()">⬇ Download .xlsx</button>
+    </div>
+  </div>
+
+</main>
+
+<script>
+'use strict';
+// ════════════════════════════════════════════════════════════════
+//  State
+// ════════════════════════════════════════════════════════════════
+const FILES = { qbo: null, st: null };
+let OUTPUT_BLOB = null;
+const EPS = 0.005; // threshold for "non-zero" difference
+
+// ════════════════════════════════════════════════════════════════
+//  Upload handlers
+// ════════════════════════════════════════════════════════════════
+function pick(inp, z, fn, k) {
+  const f = inp.files[0]; if (!f) return;
+  FILES[k] = f;
+  document.getElementById(z).classList.add('ok');
+  document.getElementById(fn).textContent = f.name;
+  chk();
+}
+function dov(e, z) { e.preventDefault(); document.getElementById(z).classList.add('dov'); }
+function duv(e, z) { document.getElementById(z).classList.remove('dov'); }
+function dp(e, z, inId, k) {
+  e.preventDefault(); duv(e, z);
+  const f = e.dataTransfer.files[0]; if (!f) return;
+  const inp = document.getElementById(inId);
+  const dt = new DataTransfer(); dt.items.add(f); inp.files = dt.files;
+  FILES[k] = f;
+  document.getElementById(z).classList.add('ok');
+  document.getElementById(k === 'qbo' ? 'fq' : 'fs').textContent = f.name;
+  chk();
+}
+function chk() {
+  const ok = FILES.qbo && FILES.st;
+  document.getElementById('br').disabled = !ok;
+  const h = document.getElementById('rh');
+  h.textContent = ok ? 'Both files ready. Click Run to start.' : 'Upload both files to begin.';
+  h.style.color = ok ? 'var(--success)' : 'var(--muted)';
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Read Excel → array of row objects (auto-detects header row)
+// ════════════════════════════════════════════════════════════════
+async function readExcel(file, requiredCols) {
+  const buf = await file.arrayBuffer();
+  const wb  = XLSX.read(buf, { type: 'array', cellDates: true, raw: false });
+  const ws  = wb.Sheets[wb.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+
+  // Find header row
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(raw.length, 40); i++) {
+    const cells = raw[i].map(c => String(c).trim());
+    if (requiredCols.every(rc => cells.includes(rc))) { headerIdx = i; break; }
+  }
+  if (headerIdx === -1)
+    throw new Error(`Required columns [${requiredCols.join(', ')}] not found in "${file.name}". Check you uploaded the correct file.`);
+
+  const headers = raw[headerIdx].map(c => String(c).trim());
+  const rows = [];
+  for (let i = headerIdx + 1; i < raw.length; i++) {
+    const r = raw[i];
+    if (r.every(c => c === '' || c == null)) continue; // skip blank rows
+    const obj = {};
+    headers.forEach((h, j) => { obj[h] = r[j] ?? ''; });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Data cleaning helpers
+// ════════════════════════════════════════════════════════════════
+function cleanNum(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const s = String(v).replace(/[$,\s]/g, '').trim();
+  if (!s || s === '-' || s.toLowerCase() === 'nan') return null;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+function cleanInv(v) {
+  return String(v ?? '').trim().toUpperCase();
+}
+function parseDate(v) {
+  if (!v || v === '') return null;
+  if (v instanceof Date && !isNaN(v)) return v;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+function fmtDate(d) {
+  if (!d) return null;
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${mm}/${dd}/${d.getFullYear()}`;
+}
+function ne(val) {
+  return val !== null && !isNaN(val) && Math.abs(val) >= EPS;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Core reconciliation
+// ════════════════════════════════════════════════════════════════
+function reconcile(qboRows, stRows) {
+
+  // ── Clean QBO ────────────────────────────────────────────────
+  const qboMap = new Map();
+  for (const r of qboRows) {
+    const inv = cleanInv(r['Num']);
+    if (!inv || inv === 'NAN') continue;
+    if (!qboMap.has(inv)) qboMap.set(inv, []);
+    qboMap.get(inv).push({
+      inv,
+      date:       parseDate(r['Date']),
+      QBO_Tax:    cleanNum(r['Tax amount']),
+      QBO_Amount: cleanNum(r['Amount']),
+    });
+  }
+
+  // ── Clean ST ─────────────────────────────────────────────────
+  const stMap = new Map();
+  for (const r of stRows) {
+    const inv = cleanInv(r['Invoice #']);
+    if (!inv || inv === 'NAN') continue;
+    if (!stMap.has(inv)) stMap.set(inv, []);
+    stMap.get(inv).push({
+      inv,
+      date:          parseDate(r['Invoice Date']),
+      ST_SUB_TOTAL:  cleanNum(r['Subtotal']),
+      ST_Tax:        cleanNum(r['Tax']),
+      ST_Amount:     cleanNum(r['Total']),
+      invoiceStatus: String(r['Invoice Status'] ?? '').trim(),
+    });
+  }
+
+  // ── Detect duplicates ─────────────────────────────────────────
+  const dupKeys = new Set();
+  for (const [k, v] of qboMap) { if (v.length > 1) dupKeys.add(k); }
+  for (const [k, v] of stMap)  { if (v.length > 1) dupKeys.add(k); }
+
+  // ── Classify helper ───────────────────────────────────────────
+  function classify(taxDiff, totDiff, inST, inQBO, isDup) {
+    if (isDup)  return 'Review';
+    if (!inST)  return 'Missing in ST';
+    if (!inQBO) return 'Missing in QBO';
+    const taxNe = taxDiff !== null && ne(taxDiff);
+    const totNe = totDiff !== null && ne(totDiff);
+    if (!taxNe && !totNe) return 'Exact Match';
+    if (taxNe  && totNe)  return 'Both Difference';
+    if (taxNe)            return 'Tax Difference';
+    return 'Amount Difference';
+  }
+
+  // ── Build merged rows (outer join) ───────────────────────────
+  const allKeys = new Set([...qboMap.keys(), ...stMap.keys()]);
+  const allRows = [];
+
+  for (const inv of allKeys) {
+    const qList = qboMap.get(inv) || [];
+    const sList = stMap.get(inv)  || [];
+    const isDup = dupKeys.has(inv);
+    const maxLen = Math.max(qList.length || 1, sList.length || 1);
+
+    for (let i = 0; i < maxLen; i++) {
+      const q = qList[i] || null;
+      const s = sList[i] || null;
+
+      const date    = s?.date    || q?.date    || null;
+      const taxDiff = (s?.ST_Tax    != null && q?.QBO_Tax    != null) ? s.ST_Tax    - q.QBO_Tax    : null;
+      const totDiff = (s?.ST_Amount != null && q?.QBO_Amount != null) ? s.ST_Amount - q.QBO_Amount : null;
+      const type    = classify(taxDiff, totDiff, !!s, !!q, isDup);
+
+      allRows.push({
+        date,
+        inv,
+        type,
+        invoiceStatus: s?.invoiceStatus ?? '',
+        ST_SUB_TOTAL:  s?.ST_SUB_TOTAL  ?? null,
+        ST_Tax:        s?.ST_Tax        ?? null,
+        ST_Amount:     s?.ST_Amount     ?? null,
+        QBO_Tax:       q?.QBO_Tax       ?? null,
+        QBO_Amount:    q?.QBO_Amount    ?? null,
+        taxDiff,
+        totDiff,
+      });
+    }
+  }
+
+  // ── Sort ──────────────────────────────────────────────────────
+  const order = {
+    'Both Difference':0,'Tax Difference':1,'Amount Difference':2,
+    'Missing in QBO':3,'Missing in ST':4,'Review':5,'Exact Match':6
+  };
+  allRows.sort((a, b) => {
+    const od = (order[a.type] ?? 9) - (order[b.type] ?? 9);
+    if (od !== 0) return od;
+    if (a.date && b.date) return a.date - b.date;
+    return a.inv.localeCompare(b.inv);
+  });
+
+  // ── Sheet filters ─────────────────────────────────────────────
+  // Tax Recon: Tax Difference ≠ 0 (regardless of total)
+  const taxRows = allRows.filter(r => r.taxDiff !== null && ne(r.taxDiff));
+
+  // Total Amount Recon: Total Difference ≠ 0 OR Tax Difference ≠ 0
+  const totRows = allRows.filter(r =>
+    (r.taxDiff !== null && ne(r.taxDiff)) ||
+    (r.totDiff !== null && ne(r.totDiff))
+  );
+
+  // ── Summary ───────────────────────────────────────────────────
+  const cnt = t => allRows.filter(r => r.type === t).length;
+  const summary = {
+    qboRecords: [...qboMap.values()].reduce((s, v) => s + v.length, 0),
+    stRecords:  [...stMap.values()].reduce((s, v)  => s + v.length, 0),
+    total:      allRows.length,
+    exact:      cnt('Exact Match'),
+    taxDiff:    cnt('Tax Difference') + cnt('Both Difference'),
+    amtDiff:    cnt('Amount Difference') + cnt('Both Difference'),
+    bothDiff:   cnt('Both Difference'),
+    missQBO:    cnt('Missing in QBO'),
+    missST:     cnt('Missing in ST'),
+    review:     cnt('Review'),
+    taxRows:    taxRows.length,
+    totRows:    totRows.length,
+    qboDups:    [...qboMap.values()].filter(v => v.length > 1).length,
+    stDups:     [...stMap.values()].filter(v  => v.length > 1).length,
+  };
+
+  return { taxRows, totRows, allRows, summary };
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Build styled Excel output with ExcelJS
+// ════════════════════════════════════════════════════════════════
+const TYPE_BG = {
+  'Both Difference':   'FEE2E2',
+  'Tax Difference':    'FEF9C3',
+  'Amount Difference': 'FFEDD5',
+  'Missing in QBO':    'DBEAFE',
+  'Missing in ST':     'EDE9FE',
+  'Review':            'FEF3C7',
+  'Exact Match':       'DCFCE7',
+};
+const TYPE_FG = {
+  'Both Difference':   '991B1B',
+  'Tax Difference':    '854D0E',
+  'Amount Difference': '9A3412',
+  'Missing in QBO':    '1E40AF',
+  'Missing in ST':     '5B21B6',
+  'Review':            '92400E',
+  'Exact Match':       '166534',
+};
+
+const MONEY_FMT = '#,##0.00;(#,##0.00);"-"';
+const DATE_FMT  = 'mm/dd/yyyy';
+const HDR_FILL  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B3A6B' } };
+const HDR_FONT  = { name: 'Calibri', bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+const THIN      = { style: 'thin', color: { argb: 'FFD0D7E3' } };
+const BORDER    = { top: THIN, bottom: THIN, left: THIN, right: THIN };
+
+const TAX_COLS = [
+  { h: 'Date',          k: 'date',          w: 14 },
+  { h: 'Number',        k: 'inv',           w: 16 },
+  { h: 'Type',          k: 'type',          w: 22 },
+  { h: 'Invoice Status',k: 'invoiceStatus', w: 16 },
+  { h: 'ST _SUB_TOTAL', k: 'ST_SUB_TOTAL',  w: 16 },
+  { h: 'ST_Tax',        k: 'ST_Tax',        w: 14 },
+  { h: 'ST_Amount',     k: 'ST_Amount',     w: 14 },
+  { h: 'QBO_Tax',       k: 'QBO_Tax',       w: 14 },
+  { h: 'QBO_Amount',    k: 'QBO_Amount',    w: 14 },
+  { h: 'Tax Difference',k: 'taxDiff',       w: 17 },
+];
+const TOT_COLS = [
+  { h: 'Date',            k: 'date',          w: 14 },
+  { h: 'Number',          k: 'inv',           w: 16 },
+  { h: 'Type',            k: 'type',          w: 22 },
+  { h: 'Invoice Status',  k: 'invoiceStatus', w: 16 },
+  { h: 'ST _SUB_TOTAL',   k: 'ST_SUB_TOTAL',  w: 16 },
+  { h: 'ST_Tax',          k: 'ST_Tax',        w: 14 },
+  { h: 'ST_Amount',       k: 'ST_Amount',     w: 14 },
+  { h: 'QBO_Tax',         k: 'QBO_Tax',       w: 14 },
+  { h: 'QBO_Amount',      k: 'QBO_Amount',    w: 14 },
+  { h: 'Total Difference',k: 'totDiff',       w: 17 },
+];
+const MONEY_KEYS = new Set(['ST_SUB_TOTAL','ST_Tax','ST_Amount','QBO_Tax','QBO_Amount','taxDiff','totDiff']);
+
+async function buildExcel(taxRows, totRows) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Invoice Reconciliation';
+  wb.created = new Date();
+
+  function writeSheet(name, rows, colDefs) {
+    const ws = wb.addWorksheet(name);
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.columns = colDefs.map(c => ({ header: c.h, key: c.k, width: c.w }));
+    ws.autoFilter = { from: 'A1', to: `${String.fromCharCode(64 + colDefs.length)}1` };
+
+    // Header styling
+    const hRow = ws.getRow(1);
+    hRow.height = 30;
+    hRow.eachCell(cell => {
+      cell.fill      = HDR_FILL;
+      cell.font      = HDR_FONT;
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border    = BORDER;
+    });
+
+    // Data rows
+    rows.forEach((r, ri) => {
+      const row = ws.getRow(ri + 2);
+      const bg  = TYPE_BG[r.type] || 'FFFFFF';
+      const fg  = TYPE_FG[r.type] || '1E2A3A';
+      const fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + bg } };
+
+      colDefs.forEach((col, ci) => {
+        let val = r[col.k];
+        const cell = row.getCell(ci + 1);
+        cell.fill   = fill;
+        cell.border = BORDER;
+
+        if (col.k === 'date') {
+          // Store as Date object so ExcelJS formats it properly
+          cell.value = val instanceof Date ? val : null;
+          if (cell.value) cell.numFmt = DATE_FMT;
+          cell.alignment = { horizontal: 'center' };
+          cell.font = { name: 'Calibri', size: 10 };
+
+        } else if (col.k === 'inv') {
+          cell.value     = val != null ? String(val) : null;
+          cell.alignment = { horizontal: 'left' };
+          cell.font      = { name: 'Calibri', size: 10 };
+
+        } else if (col.k === 'type') {
+          cell.value     = val;
+          cell.font      = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF' + fg } };
+          cell.alignment = { horizontal: 'center' };
+
+        } else if (col.k === 'invoiceStatus') {
+          cell.value     = val || null;
+          cell.alignment = { horizontal: 'center' };
+          cell.font      = { name: 'Calibri', size: 10 };
+
+        } else if (MONEY_KEYS.has(col.k)) {
+          cell.value = val !== null ? val : null;
+          if (cell.value !== null) cell.numFmt = MONEY_FMT;
+          cell.alignment = { horizontal: 'right' };
+
+          // Highlight non-zero differences
+          if ((col.k === 'taxDiff' || col.k === 'totDiff') && val !== null && ne(val)) {
+            cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFC0392B' } };
+          } else {
+            cell.font = { name: 'Calibri', size: 10 };
+          }
+        } else {
+          cell.value = val;
+          cell.font  = { name: 'Calibri', size: 10 };
+        }
+      });
+      row.commit();
+    });
+
+    // Footer
+    const fr = rows.length + 3;
+    ws.getCell(`A${fr}`).value = `${name} — Total rows:`;
+    ws.getCell(`A${fr}`).font = { bold: true, name: 'Calibri', size: 10 };
+    ws.getCell(`B${fr}`).value = rows.length;
+    ws.getCell(`B${fr}`).font = { bold: true, name: 'Calibri', size: 10 };
+  }
+
+  writeSheet('Tax Recon',          taxRows, TAX_COLS);
+  writeSheet('Total Amount Recon', totRows, TOT_COLS);
+
+  const buf = await wb.xlsx.writeBuffer();
+  return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Main run
+// ════════════════════════════════════════════════════════════════
+async function runRecon() {
+  const sp  = document.getElementById('sp');
+  const ds  = document.getElementById('ds');
+  sp.classList.add('vis');
+  ds.classList.remove('vis');
+  document.getElementById('sg').style.display = 'none';
+  document.getElementById('ws').classList.remove('vis');
+  document.getElementById('leg').style.display = 'none';
+  OUTPUT_BLOB = null;
+  document.getElementById('br').disabled = true;
+  showMsg('proc', 'Reading files…');
+  await tick();
+
+  try {
+    const QBO_REQ = ['Date', 'Num', 'Tax amount', 'Amount'];
+    const ST_REQ  = ['Invoice Date', 'Invoice #', 'Invoice Status', 'Subtotal', 'Tax', 'Total'];
+
+    showMsg('proc', 'Parsing QBO export…'); await tick();
+    const qboRows = await readExcel(FILES.qbo, QBO_REQ);
+
+    showMsg('proc', 'Parsing ServiceTitan export…'); await tick();
+    const stRows  = await readExcel(FILES.st, ST_REQ);
+
+    showMsg('proc', `Reconciling ${qboRows.length} QBO + ${stRows.length} ST records…`); await tick();
+    const { taxRows, totRows, summary } = reconcile(qboRows, stRows);
+
+    showMsg('proc', 'Building Excel output…'); await tick();
+    OUTPUT_BLOB = await buildExcel(taxRows, totRows);
+
+    showMsg('done',
+      `✓ Complete — Tax Recon: ${taxRows.length} rows · Total Amount Recon: ${totRows.length} rows`
+    );
+    renderStats(summary);
+    renderWarns(summary);
+    document.getElementById('dlp').textContent =
+      `Tax Recon (${taxRows.length} rows) · Total Amount Recon (${totRows.length} rows)`;
+    ds.classList.add('vis');
+    sp.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  } catch (err) {
+    showMsg('fail', '⚠ ' + err.message);
+    console.error(err);
+  } finally {
+    document.getElementById('br').disabled = false;
+  }
+}
+
+function tick() { return new Promise(r => setTimeout(r, 25)); }
+
+function showMsg(t, x) {
+  const spin = t === 'proc' ? '<div class="spin"></div>' : '';
+  document.getElementById('mb').innerHTML = `<div class="sm ${t}">${spin}<span>${x}</span></div>`;
+}
+
+function renderStats(s) {
+  const g = document.getElementById('sg');
+  const items = [
+    { l: 'QBO Records',      v: s.qboRecords, c: '' },
+    { l: 'ST Records',       v: s.stRecords,  c: '' },
+    { l: 'Exact Match',      v: s.exact,      c: 'ok' },
+    { l: 'Both Diff',        v: s.bothDiff,   c: s.bothDiff  > 0 ? 'bad'  : '' },
+    { l: 'Tax Diff',         v: s.taxDiff,    c: s.taxDiff   > 0 ? 'warn' : '' },
+    { l: 'Amount Diff',      v: s.amtDiff,    c: s.amtDiff   > 0 ? 'warn' : '' },
+    { l: 'Missing QBO',      v: s.missQBO,    c: s.missQBO   > 0 ? 'info' : '' },
+    { l: 'Missing ST',       v: s.missST,     c: s.missST    > 0 ? 'info' : '' },
+    { l: 'Review',           v: s.review,     c: s.review    > 0 ? 'warn' : '' },
+    { l: 'Tax Sheet Rows',   v: s.taxRows,    c: 'info' },
+    { l: 'Total Sheet Rows', v: s.totRows,    c: 'info' },
+  ];
+  g.innerHTML = items.map(i =>
+    `<div class="sc ${i.c}"><div class="sv">${i.v}</div><div class="sl2">${i.l}</div></div>`
+  ).join('');
+  g.style.display = 'grid';
+  document.getElementById('leg').style.display = 'flex';
+}
+
+function renderWarns(s) {
+  const w = [];
+  if (s.qboDups > 0) w.push(`${s.qboDups} duplicate invoice number(s) detected in QBO — classified as "Review".`);
+  if (s.stDups  > 0) w.push(`${s.stDups}  duplicate invoice number(s) detected in ServiceTitan — classified as "Review".`);
+  if (!w.length) return;
+  document.getElementById('wl').innerHTML =
+    '<strong>⚠ Notices:</strong>' + w.map(x => `<li>${x}</li>`).join('');
+  document.getElementById('ws').classList.add('vis');
+}
+
+function downloadFile() {
+  if (!OUTPUT_BLOB) { alert('No output ready. Please run reconciliation first.'); return; }
+  saveAs(OUTPUT_BLOB, 'Invoice_Reconciliation.xlsx');
+}
+</script>
+</body>
+</html>
