@@ -3,409 +3,980 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Invoice Reconciliation</title>
+<title>Invoice Reconciliation — QBO ↔ ServiceTitan</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+
 <style>
+/* ─── Reset ──────────────────────────────────────────── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+/* ─── Design tokens ──────────────────────────────────── */
 :root{
-  --navy:#0f2243;--blue:#1a56a8;--sky:#3d8bdb;--accent:#2dd4bf;
-  --danger:#dc2626;--warn:#d97706;--success:#16a34a;--purple:#7c3aed;
-  --surface:#f4f6fb;--card:#fff;--border:#d5dde8;--text:#1e2a3a;--muted:#6b7a90;
-  --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
-  --r:8px;--sh:0 2px 12px rgba(15,34,67,.10);
+  --ink:     #0d1117;
+  --ink-2:   #1c2333;
+  --ink-3:   #2d3748;
+  --rule:    #e2e8f0;
+  --rule-2:  #cbd5e0;
+  --muted:   #718096;
+  --paper:   #f7f9fc;
+  --white:   #ffffff;
+  --teal:    #0d9488;
+  --teal-l:  #ccfbf1;
+  --teal-d:  #0f766e;
+  --amber:   #d97706;
+  --amber-l: #fef3c7;
+  --red:     #dc2626;
+  --red-l:   #fee2e2;
+  --blue:    #1d4ed8;
+  --blue-l:  #dbeafe;
+  --violet:  #7c3aed;
+  --violet-l:#ede9fe;
+  --slate:   #475569;
+  --slate-l: #f1f5f9;
+  --mono: 'DM Mono', monospace;
+  --sans: 'DM Sans', sans-serif;
+  --r: 10px;
 }
-body{font-family:var(--sans);background:var(--surface);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
 
-/* Header */
-header{background:var(--navy);padding:0 2.5rem;height:62px;display:flex;align-items:center;gap:1rem;position:sticky;top:0;z-index:100;box-shadow:0 2px 16px rgba(0,0,0,.25)}
-.logo{width:34px;height:34px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:600;font-size:14px;color:var(--navy);flex-shrink:0}
-header h1{font-size:1rem;font-weight:600;color:#fff;letter-spacing:.02em}
-.hbadge{font-family:var(--mono);font-size:.65rem;color:rgba(255,255,255,.4);margin-left:auto}
+/* ─── Base ───────────────────────────────────────────── */
+html{font-size:15px;-webkit-font-smoothing:antialiased}
+body{
+  font-family:var(--sans);
+  background:var(--paper);
+  color:var(--ink);
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+}
 
-/* Layout */
-main{flex:1;max-width:980px;width:100%;margin:0 auto;padding:2.5rem 1.5rem 5rem;display:flex;flex-direction:column;gap:2rem}
-.sl{font-family:var(--mono);font-size:.67rem;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--blue);margin-bottom:.75rem}
-.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--sh);padding:1.75rem 2rem}
+/* ─── Header ─────────────────────────────────────────── */
+header{
+  background:var(--ink);
+  border-bottom:2px solid var(--teal);
+  padding:0 2rem;
+  height:58px;
+  display:flex;
+  align-items:center;
+  gap:1rem;
+  position:sticky;
+  top:0;
+  z-index:200;
+}
+.h-mark{
+  font-family:var(--mono);
+  font-size:.75rem;
+  font-weight:500;
+  color:var(--ink);
+  background:var(--teal);
+  padding:.2rem .55rem;
+  border-radius:4px;
+  letter-spacing:.06em;
+  flex-shrink:0;
+}
+header h1{
+  font-size:.95rem;
+  font-weight:600;
+  color:#fff;
+  letter-spacing:.01em;
+}
+header .h-sub{
+  margin-left:auto;
+  font-family:var(--mono);
+  font-size:.65rem;
+  color:rgba(255,255,255,.3);
+  letter-spacing:.08em;
+}
 
-/* ── Upload boxes — fixed size, never stretch ── */
-.ugrid{
+/* ─── Layout ─────────────────────────────────────────── */
+main{
+  flex:1;
+  width:100%;
+  max-width:1020px;
+  margin:0 auto;
+  padding:2.25rem 1.5rem 5rem;
+  display:flex;
+  flex-direction:column;
+  gap:1.75rem;
+}
+
+/* ─── Step label ─────────────────────────────────────── */
+.step-label{
+  display:flex;
+  align-items:center;
+  gap:.6rem;
+  margin-bottom:.75rem;
+}
+.step-num{
+  font-family:var(--mono);
+  font-size:.65rem;
+  font-weight:500;
+  color:var(--teal);
+  background:var(--teal-l);
+  border:1px solid #99f6e4;
+  padding:.15rem .5rem;
+  border-radius:4px;
+  letter-spacing:.1em;
+}
+.step-title{
+  font-size:.78rem;
+  font-weight:600;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--ink-3);
+}
+
+/* ─── Card ───────────────────────────────────────────── */
+.card{
+  background:var(--white);
+  border:1px solid var(--rule);
+  border-radius:var(--r);
+  padding:1.5rem 1.75rem;
+  box-shadow:0 1px 4px rgba(0,0,0,.05),0 0 0 0px var(--teal);
+  transition:box-shadow .2s;
+}
+
+/* ─── Upload grid — FIXED equal boxes ───────────────── */
+.upload-grid{
   display:grid;
   grid-template-columns:1fr 1fr;
-  gap:1.25rem;
-  align-items:start;
+  gap:1rem;
 }
-@media(max-width:580px){.ugrid{grid-template-columns:1fr}}
+@media(max-width:600px){.upload-grid{grid-template-columns:1fr}}
 
-.uz-wrap{
-  /* outer wrapper holds fixed height so the dashed box never shifts */
-  display:flex;
-  flex-direction:column;
-  gap:0;
-}
-
-.uz{
-  border:2px dashed var(--border);
-  border-radius:var(--r);
-  /* FIXED height — never expands regardless of content */
-  height:160px;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  gap:.45rem;
-  cursor:pointer;
-  transition:border-color .2s,background .2s;
+/* Fixed-height upload zone that NEVER grows */
+.uzone{
   position:relative;
-  overflow:hidden;   /* prevent content from stretching box */
-  padding:1rem 1.25rem;
-}
-.uz:hover,.uz.dov{border-color:var(--sky);background:#f0f7ff}
-.uz.ok{border-color:var(--success);border-style:solid;background:#f0fdf6}
-.uz input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
-
-.zi{font-size:1.9rem;line-height:1;color:var(--muted);flex-shrink:0}
-.uz.ok .zi{color:var(--success)}
-
-.zt{font-size:.82rem;font-weight:600;color:var(--text);text-align:center}
-.zh{font-size:.68rem;color:var(--muted);text-align:center;line-height:1.5}
-
-/* filename: fixed width, truncate with ellipsis */
-.zf{
-  font-family:var(--mono);font-size:.65rem;color:var(--success);
-  background:#dcfce7;border-radius:4px;padding:2px 8px;
-  width:100%;max-width:100%;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  text-align:center;
-  display:none;
-}
-.uz.ok .zf{display:block}
-
-/* row count — sits BELOW the dashed box, fixed height */
-.zrows{
-  height:24px;
+  height:200px;                 /* fixed height — never changes */
+  border:2px dashed var(--rule-2);
+  border-radius:var(--r);
   display:flex;
+  flex-direction:column;
   align-items:center;
   justify-content:center;
-  gap:.4rem;
-  margin-top:.5rem;
-  font-size:.72rem;
+  gap:.5rem;
+  cursor:pointer;
+  overflow:hidden;              /* prevent content from expanding box */
+  transition:border-color .2s, background .2s;
+  padding:1rem;
+}
+.uzone:hover,.uzone.dragover{
+  border-color:var(--teal);
+  background:#f0fefa;
+}
+.uzone.loaded{
+  border-color:var(--teal);
+  border-style:solid;
+  background:#f0fefa;
+}
+.uzone input[type=file]{
+  position:absolute;
+  inset:0;
+  opacity:0;
+  cursor:pointer;
+  width:100%;
+  height:100%;
+}
+.z-icon{font-size:1.9rem;line-height:1;flex-shrink:0}
+.uzone.loaded .z-icon{filter:none}
+.z-title{
+  font-size:.82rem;
+  font-weight:600;
+  color:var(--ink);
+  text-align:center;
+  flex-shrink:0;
+}
+.z-hint{
+  font-size:.7rem;
   color:var(--muted);
+  text-align:center;
+  line-height:1.5;
+  flex-shrink:0;
+}
+/* File name — truncated, never grows the box */
+.z-fname{
   font-family:var(--mono);
-  visibility:hidden;  /* hidden until file loaded, preserves space */
+  font-size:.66rem;
+  color:var(--teal-d);
+  background:var(--teal-l);
+  border-radius:4px;
+  padding:2px 8px;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  display:none;
+  flex-shrink:0;
 }
-.zrows.vis{visibility:visible}
-.zrows .rc{
-  background:var(--navy);color:#fff;
-  border-radius:10px;padding:1px 8px;
-  font-size:.7rem;font-weight:600;
-}
+.uzone.loaded .z-fname{display:block}
 
-/* Buttons */
-.brow{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
-.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.65rem 1.5rem;border-radius:6px;font-family:var(--sans);font-size:.85rem;font-weight:600;cursor:pointer;border:none;transition:all .15s;text-decoration:none;white-space:nowrap}
+/* Row count badge */
+.z-rows{
+  font-family:var(--mono);
+  font-size:.66rem;
+  color:var(--teal-d);
+  font-weight:500;
+  display:none;
+  flex-shrink:0;
+}
+.uzone.loaded .z-rows{display:block}
+
+/* ─── Buttons ────────────────────────────────────────── */
+.btn-row{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
+.btn{
+  display:inline-flex;align-items:center;gap:.45rem;
+  padding:.6rem 1.35rem;border-radius:7px;
+  font-family:var(--sans);font-size:.82rem;font-weight:600;
+  cursor:pointer;border:none;transition:all .15s;
+  text-decoration:none;white-space:nowrap;letter-spacing:.01em;
+}
 .btn:active{transform:translateY(1px)}
-.btn:disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
-.bp{background:var(--blue);color:#fff;box-shadow:0 2px 8px rgba(26,86,168,.3)}
-.bp:hover{background:#1648a0}
-.ba{background:var(--accent);color:var(--navy);box-shadow:0 2px 8px rgba(45,212,191,.3)}
-.ba:hover{background:#22c9b5}
+.btn:disabled{opacity:.38;cursor:not-allowed;pointer-events:none}
+.btn-run{background:var(--ink);color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.btn-run:hover{background:var(--ink-2)}
+.btn-dl{background:var(--teal);color:#fff;box-shadow:0 2px 8px rgba(13,148,136,.3)}
+.btn-dl:hover{background:var(--teal-d)}
+.run-hint{font-size:.76rem;color:var(--muted)}
 
-/* Status */
-#sp{display:none}
-#sp.vis{display:block}
-.sm{padding:.85rem 1.1rem;border-radius:6px;font-size:.82rem;font-weight:500;display:flex;align-items:center;gap:.65rem;margin-bottom:1.25rem}
-.sm.proc{background:#eff6ff;color:var(--blue);border:1px solid #bfdbfe}
-.sm.done{background:#f0fdf4;color:#166534;border:1px solid #86efac}
-.sm.fail{background:#fff1f2;color:#991b1b;border:1px solid #fca5a5}
-.spin{width:16px;height:16px;border:2px solid rgba(26,86,168,.18);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+/* ─── Status messages ────────────────────────────────── */
+.smsg{
+  display:flex;align-items:center;gap:.6rem;
+  padding:.8rem 1rem;border-radius:7px;
+  font-size:.8rem;font-weight:500;
+  margin-bottom:1.25rem;
+}
+.smsg.proc{background:var(--teal-l);color:var(--teal-d);border:1px solid #99f6e4}
+.smsg.ok{background:#f0fdf4;color:#166534;border:1px solid #86efac}
+.smsg.err{background:var(--red-l);color:#991b1b;border:1px solid #fca5a5}
+.spin{
+  width:15px;height:15px;border-radius:50%;flex-shrink:0;
+  border:2px solid rgba(13,148,136,.25);
+  border-top-color:var(--teal-d);
+  animation:spin .7s linear infinite;
+}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* Stats grid */
-.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:.85rem;margin-bottom:1.25rem}
-.sc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:.95rem 1.1rem;display:flex;flex-direction:column;gap:.25rem}
-.sv{font-family:var(--mono);font-size:1.5rem;font-weight:600;color:var(--navy);line-height:1}
-.sl2{font-size:.67rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
-.sc.ok .sv{color:var(--success)}
-.sc.warn .sv{color:var(--warn)}
-.sc.bad .sv{color:var(--danger)}
-.sc.info .sv{color:var(--blue)}
-.sc.pur .sv{color:var(--purple)}
+/* ─── Stats grid ─────────────────────────────────────── */
+.stats-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(138px,1fr));
+  gap:.75rem;
+  margin-bottom:1.25rem;
+}
+.stat{
+  background:var(--slate-l);
+  border:1px solid var(--rule);
+  border-radius:8px;
+  padding:.85rem 1rem;
+  display:flex;flex-direction:column;gap:.2rem;
+}
+.stat-v{
+  font-family:var(--mono);font-size:1.45rem;
+  font-weight:500;color:var(--ink);line-height:1;
+}
+.stat-l{
+  font-size:.63rem;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+}
+.stat.s-ok .stat-v{color:var(--teal-d)}
+.stat.s-warn .stat-v{color:var(--amber)}
+.stat.s-bad .stat-v{color:var(--red)}
+.stat.s-info .stat-v{color:var(--blue)}
 
-/* Divider between stat groups */
-.sgrid-label{font-family:var(--mono);font-size:.63rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:.75rem;margin-bottom:.4rem}
+/* ─── Warn banner ────────────────────────────────────── */
+.warn-box{
+  background:var(--amber-l);border:1px solid #fcd34d;
+  border-radius:7px;padding:.8rem 1rem;
+  font-size:.76rem;color:#92400e;
+  display:none;margin-bottom:1.25rem;
+}
+.warn-box.vis{display:block}
+.warn-box li{margin-left:1.2rem;margin-top:.2rem}
 
-/* Warnings */
-#ws{display:none;margin-top:1rem}
-#ws.vis{display:block}
-.wl{background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:.85rem 1rem;font-size:.78rem;color:#92400e;line-height:1.6}
-.wl li{margin-left:1.25rem}
+/* ─── Legend ─────────────────────────────────────────── */
+.legend{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:1.1rem}
+.ltag{
+  display:inline-flex;align-items:center;gap:.3rem;
+  padding:.2rem .65rem;border-radius:20px;
+  font-size:.66rem;font-weight:600;letter-spacing:.04em;
+}
 
-/* Download banner */
-#ds{display:none}
-#ds.vis{display:block}
-.db{background:linear-gradient(135deg,#0f2243 0%,#1a56a8 100%);border-radius:var(--r);padding:1.5rem 2rem;display:flex;align-items:center;justify-content:space-between;gap:1.5rem;flex-wrap:wrap}
-.db h3{color:#fff;font-size:1rem;margin-bottom:.2rem}
-.db p{color:rgba(255,255,255,.6);font-size:.78rem}
+/* ─── Download banner ────────────────────────────────── */
+.dl-banner{
+  background:var(--ink);
+  border-radius:var(--r);
+  padding:1.4rem 1.75rem;
+  display:flex;align-items:center;
+  justify-content:space-between;gap:1.5rem;flex-wrap:wrap;
+}
+.dl-banner h3{color:#fff;font-size:.95rem;margin-bottom:.2rem}
+.dl-banner p{color:rgba(255,255,255,.5);font-size:.74rem}
 
-/* Legend */
-.legend{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1rem}
-.ltag{display:inline-flex;align-items:center;gap:.35rem;padding:.25rem .7rem;border-radius:20px;font-size:.68rem;font-weight:600}
+/* ─── Privacy note ───────────────────────────────────── */
+.priv-note{
+  display:flex;align-items:flex-start;gap:.6rem;
+  background:var(--teal-l);border:1px solid #99f6e4;
+  border-radius:7px;padding:.75rem 1rem;
+  font-size:.75rem;color:var(--teal-d);line-height:1.55;
+}
 
-/* Rule summary box */
-.rules-box{background:#f8faff;border:1px solid #c7d7f0;border-radius:6px;padding:1rem 1.25rem;font-size:.75rem;color:#2d4170;line-height:1.7;margin-top:1.25rem}
-.rules-box strong{color:var(--navy)}
+/* ─── Hidden ─────────────────────────────────────────── */
+.hidden{display:none!important}
 </style>
 </head>
 <body>
+
 <header>
-  <div class="logo">IR</div>
+  <span class="h-mark">IR</span>
   <h1>Invoice Reconciliation</h1>
-  <span class="hbadge">QBO ↔ ServiceTitan · Flask Edition</span>
+  <span class="h-sub">QBO ↔ SERVICETITAN · BROWSER-ONLY</span>
 </header>
 
 <main>
 
-  <!-- 01 Upload -->
+  <!-- Privacy note -->
+  <div class="priv-note">
+    🔒 <span>Runs <strong>100% in your browser</strong>. Files are never uploaded anywhere — all processing happens locally on your device.</span>
+  </div>
+
+  <!-- ── 01 Upload ── -->
   <div>
-    <div class="sl">01 — Upload Files</div>
+    <div class="step-label">
+      <span class="step-num">01</span>
+      <span class="step-title">Upload Files</span>
+    </div>
     <div class="card">
-      <div class="ugrid">
+      <div class="upload-grid">
 
         <!-- QBO -->
-        <div class="uz-wrap">
-          <div class="uz" id="zq"
-               ondragover="dov(event,'zq')" ondragleave="duv(event,'zq')"
-               ondrop="dp(event,'zq','iq','qbo')">
-            <input type="file" id="iq" accept=".xlsx,.xls"
-                   onchange="pick(this,'zq','fq','qbo','rq')">
-            <div class="zi">📊</div>
-            <div class="zt">QuickBooks Online Export</div>
-            <div class="zh">Invoice List by Customer with Tax<br>.xlsx / .xls</div>
-            <div class="zf" id="fq"></div>
-          </div>
-          <div class="zrows" id="rq">
-            <span>Rows:</span><span class="rc" id="rqc">—</span>
-          </div>
+        <div class="uzone" id="z-qbo"
+             ondragover="onDragOver(event,'z-qbo')"
+             ondragleave="onDragLeave(event,'z-qbo')"
+             ondrop="onDrop(event,'z-qbo','inp-qbo','qbo')">
+          <input type="file" id="inp-qbo" accept=".xlsx,.xls"
+                 onchange="onFilePick(this,'z-qbo','fn-qbo','rc-qbo','qbo')">
+          <div class="z-icon">📊</div>
+          <div class="z-title">QuickBooks Online Export</div>
+          <div class="z-hint">Invoice List by Customer with Tax<br>.xlsx or .xls</div>
+          <div class="z-fname" id="fn-qbo"></div>
+          <div class="z-rows"  id="rc-qbo"></div>
         </div>
 
-        <!-- ServiceTitan -->
-        <div class="uz-wrap">
-          <div class="uz" id="zs"
-               ondragover="dov(event,'zs')" ondragleave="duv(event,'zs')"
-               ondrop="dp(event,'zs','is_','st')">
-            <input type="file" id="is_" accept=".xlsx,.xls"
-                   onchange="pick(this,'zs','fs','st','rs')">
-            <div class="zi">🔧</div>
-            <div class="zt">ServiceTitan Export</div>
-            <div class="zh">Invoice Detail by Date<br>.xlsx / .xls</div>
-            <div class="zf" id="fs"></div>
-          </div>
-          <div class="zrows" id="rs">
-            <span>Rows:</span><span class="rc" id="rsc">—</span>
-          </div>
+        <!-- ST -->
+        <div class="uzone" id="z-st"
+             ondragover="onDragOver(event,'z-st')"
+             ondragleave="onDragLeave(event,'z-st')"
+             ondrop="onDrop(event,'z-st','inp-st','st')">
+          <input type="file" id="inp-st" accept=".xlsx,.xls"
+                 onchange="onFilePick(this,'z-st','fn-st','rc-st','st')">
+          <div class="z-icon">🔧</div>
+          <div class="z-title">ServiceTitan Export</div>
+          <div class="z-hint">Invoice Detail by Date<br>.xlsx or .xls</div>
+          <div class="z-fname" id="fn-st"></div>
+          <div class="z-rows"  id="rc-st"></div>
         </div>
 
-      </div><!-- ugrid -->
+      </div>
     </div>
   </div>
 
-  <!-- 02 Run -->
+  <!-- ── 02 Run ── -->
   <div>
-    <div class="sl">02 — Run Reconciliation</div>
+    <div class="step-label">
+      <span class="step-num">02</span>
+      <span class="step-title">Run Reconciliation</span>
+    </div>
     <div class="card">
-      <div class="brow">
-        <button class="btn bp" id="br" disabled onclick="runRecon()">
-          ▶ Run Reconciliation
+      <div class="btn-row">
+        <button class="btn btn-run" id="btn-run" disabled onclick="runRecon()">
+          ▶&nbsp; Run Reconciliation
         </button>
-        <span id="rh" style="font-size:.78rem;color:var(--muted)">Upload both files to begin.</span>
-      </div>
-      <div class="rules-box" style="margin-top:1.25rem">
-        <strong>Sheet routing rules:</strong><br>
-        <strong>Tax Recon</strong> — Tax Diff ≠ 0 <em>AND</em> Total Diff ≠ 0 (Both Difference only)<br>
-        <strong>Total Amount Recon</strong> — Total Diff ≠ 0 (Amount Difference + Both Difference)<br>
-        Tax-only differences where total matches are excluded from both sheets.
+        <span class="run-hint" id="run-hint">Upload both files to begin.</span>
       </div>
     </div>
   </div>
 
-  <!-- 03 Results -->
-  <div id="sp">
-    <div class="sl">03 — Results</div>
+  <!-- ── 03 Results ── -->
+  <div id="sec-results" class="hidden">
+    <div class="step-label">
+      <span class="step-num">03</span>
+      <span class="step-title">Results</span>
+    </div>
     <div class="card">
-      <div id="mb"></div>
-      <div id="sblock" style="display:none">
-        <div class="sgrid-label">Input</div>
-        <div class="sgrid" id="sg-in"></div>
-        <div class="sgrid-label">Classification</div>
-        <div class="sgrid" id="sg-cls"></div>
-        <div class="sgrid-label">Output Sheets</div>
-        <div class="sgrid" id="sg-out"></div>
-      </div>
-      <div id="ws"><ul class="wl" id="wl"></ul></div>
-      <div class="legend" id="leg" style="display:none">
-        <span class="ltag" style="background:#FEE2E2;color:#991B1B">● Both Difference → Tax Recon + Total Amount Recon</span>
-        <span class="ltag" style="background:#FFEDD5;color:#9A3412">● Amount Difference → Total Amount Recon only</span>
-        <span class="ltag" style="background:#FEF9C3;color:#854D0E">● Tax Difference → excluded (total matches)</span>
-        <span class="ltag" style="background:#DCFCE7;color:#166534">● Exact Match → excluded</span>
+      <div id="status-msg"></div>
+      <div class="warn-box" id="warn-box"><ul id="warn-list"></ul></div>
+      <div class="stats-grid" id="stats-grid"></div>
+      <div class="legend" id="legend">
+        <span class="ltag" style="background:#fee2e2;color:#991b1b">● Both Difference</span>
+        <span class="ltag" style="background:#fef3c7;color:#92400e">● Amount Difference</span>
+        <span class="ltag" style="background:#dbeafe;color:#1e40af">● Missing in QBO</span>
+        <span class="ltag" style="background:#ede9fe;color:#5b21b6">● Missing in ST</span>
+        <span class="ltag" style="background:#fef9c3;color:#854d0e">● Tax Difference (excluded from sheets)</span>
+        <span class="ltag" style="background:#f1f5f9;color:#475569">● Review</span>
+        <span class="ltag" style="background:#dcfce7;color:#166534">● Exact Match</span>
       </div>
     </div>
   </div>
 
-  <!-- 04 Download -->
-  <div id="ds">
-    <div class="sl">04 — Download Output</div>
-    <div class="db">
+  <!-- ── 04 Download ── -->
+  <div id="sec-download" class="hidden">
+    <div class="step-label">
+      <span class="step-num">04</span>
+      <span class="step-title">Download Output</span>
+    </div>
+    <div class="dl-banner">
       <div>
         <h3>Reconciliation File Ready</h3>
-        <p id="dlp">Tax Recon + Total Amount Recon sheets</p>
+        <p id="dl-desc">Tax Recon + Total Amount Recon sheets</p>
       </div>
-      <a class="btn ba" href="/api/download" download="Invoice_Reconciliation.xlsx">
-        ⬇ Download .xlsx
-      </a>
+      <button class="btn btn-dl" onclick="downloadFile()">⬇&nbsp; Download .xlsx</button>
     </div>
   </div>
 
 </main>
 
+<!-- ═══════════════════════════════════════════════════════════
+     JavaScript — All reconciliation logic
+═══════════════════════════════════════════════════════════ -->
 <script>
-// ── State ─────────────────────────────────────────────────────
+'use strict';
+
+/* ─────────────────────────────────────────────────────────
+   STATE
+───────────────────────────────────────────────────────── */
 const FILES = { qbo: null, st: null };
+const ROW_COUNTS = { qbo: 0, st: 0 };
+let OUTPUT_BLOB = null;
+const EPS = 0.005; // "zero" threshold for differences
 
-// ── Row counter: count data rows in uploaded Excel (SheetJS via CDN not available in Flask
-//    template so we use a lightweight manual binary scan approach) ──────────────────────
-// We'll count rows server-side in the reconcile response instead.
-// For immediate display we count rows in the upload handler using FileReader + a naive newline heuristic,
-// OR we skip and just show "Loaded" until reconcile returns counts.
-// Simple approach: show row count from summary after reconcile.
-// For instant display: read the file with ArrayBuffer and count sheet rows client-side.
-// We'll use a minimal XLSX reader snippet via dynamic import — but since we don't want CDN
-// dependencies in Flask template, we'll use the count returned by the server in the summary.
-
-async function fb64(f) {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload  = () => res(r.result.split(',')[1]);
-    r.onerror = () => rej(new Error('Could not read: ' + f.name));
-    r.readAsDataURL(f);
-  });
+/* ─────────────────────────────────────────────────────────
+   UPLOAD HANDLERS
+───────────────────────────────────────────────────────── */
+function onFilePick(inp, zoneId, fnId, rcId, key) {
+  const f = inp.files[0];
+  if (!f) return;
+  FILES[key] = f;
+  setZoneLoading(zoneId, fnId, rcId, f.name, key);
 }
 
-// ── Upload handlers ───────────────────────────────────────────
-function pick(inp, z, fn, k, rowEl) {
-  const f = inp.files[0]; if (!f) return;
-  FILES[k] = f;
-  document.getElementById(z).classList.add('ok');
-  document.getElementById(fn).textContent = f.name;
-  // Row count shown after reconcile; show loading indicator for now
-  const rEl = document.getElementById(rowEl);
-  rEl.classList.add('vis');
-  document.getElementById(rowEl + 'c').textContent = '…';
-  chk();
-}
-function dov(e, z) { e.preventDefault(); document.getElementById(z).classList.add('dov'); }
-function duv(e, z) { document.getElementById(z).classList.remove('dov'); }
-function dp(e, z, inId, k, rowEl) {
-  e.preventDefault(); duv(e, z);
-  const f = e.dataTransfer.files[0]; if (!f) return;
-  const inp = document.getElementById(inId);
-  const dt = new DataTransfer(); dt.items.add(f); inp.files = dt.files;
-  pick(inp, z, k === 'qbo' ? 'fq' : 'fs', k, rowEl);
-}
-function chk() {
-  const ok = FILES.qbo && FILES.st;
-  document.getElementById('br').disabled = !ok;
-  const h = document.getElementById('rh');
-  h.textContent = ok ? 'Both files ready — click Run Reconciliation.' : 'Upload both files to begin.';
-  h.style.color = ok ? 'var(--success)' : 'var(--muted)';
+function setZoneLoading(zoneId, fnId, rcId, fname, key) {
+  document.getElementById(zoneId).classList.add('loaded');
+  document.getElementById(fnId).textContent = fname;
+  document.getElementById(rcId).textContent = 'Counting rows…';
+  // Count rows async to keep UI responsive
+  countRows(FILES[key], key, rcId);
+  checkReady();
 }
 
-// ── Run ───────────────────────────────────────────────────────
-async function runRecon() {
-  document.getElementById('sp').classList.add('vis');
-  document.getElementById('ds').classList.remove('vis');
-  document.getElementById('sblock').style.display = 'none';
-  document.getElementById('ws').classList.remove('vis');
-  document.getElementById('leg').style.display = 'none';
-  showMsg('proc', 'Reading files…');
-  document.getElementById('br').disabled = true;
-
+async function countRows(file, key, rcId) {
   try {
-    const [qb, sb] = await Promise.all([fb64(FILES.qbo), fb64(FILES.st)]);
-    showMsg('proc', 'Reconciling invoices…');
-
-    const res = await fetch('/api/reconcile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        qbo_data: qb, st_data: sb,
-        qbo_filename: FILES.qbo.name, st_filename: FILES.st.name
-      })
-    });
-    const d = await res.json();
-    if (!res.ok) { showMsg('fail', '⚠ ' + (d.error || 'Unknown error')); return; }
-
-    // Update row counts now that we have exact numbers
-    document.getElementById('rqc').textContent = d.qbo_records.toLocaleString();
-    document.getElementById('rsc').textContent = d.st_records.toLocaleString();
-
-    showMsg('done',
-      `✓ Done — Tax Recon: ${d.tax_sheet_rows} rows · Total Amount Recon: ${d.total_sheet_rows} rows`
-    );
-    renderStats(d);
-    renderWarns(d);
-    document.getElementById('dlp').textContent =
-      `Tax Recon (${d.tax_sheet_rows} rows)  ·  Total Amount Recon (${d.total_sheet_rows} rows)`;
-    document.getElementById('ds').classList.add('vis');
-    document.getElementById('sp').scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-  } catch (e) {
-    showMsg('fail', '⚠ ' + e.message);
-  } finally {
-    document.getElementById('br').disabled = false;
+    const buf = await file.arrayBuffer();
+    const wb  = XLSX.read(buf, { type:'array', sheetRows:5000 });
+    const ws  = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
+    // Subtract header rows (up to 5 title/blank rows before actual headers)
+    const dataRows = Math.max(0, raw.length - 3); // rough estimate
+    ROW_COUNTS[key] = dataRows;
+    document.getElementById(rcId).textContent = `Rows: ${dataRows.toLocaleString()}`;
+  } catch(e) {
+    document.getElementById(rcId).textContent = 'Rows: —';
   }
 }
 
-function showMsg(t, x) {
-  const spin = t === 'proc' ? '<div class="spin"></div>' : '';
-  document.getElementById('mb').innerHTML = `<div class="sm ${t}">${spin}<span>${x}</span></div>`;
+function onDragOver(e, z) { e.preventDefault(); document.getElementById(z).classList.add('dragover'); }
+function onDragLeave(e, z) { document.getElementById(z).classList.remove('dragover'); }
+function onDrop(e, z, inpId, key) {
+  e.preventDefault();
+  onDragLeave(e, z);
+  const f = e.dataTransfer.files[0];
+  if (!f) return;
+  const inp = document.getElementById(inpId);
+  const dt = new DataTransfer(); dt.items.add(f); inp.files = dt.files;
+  FILES[key] = f;
+  const fnId = key === 'qbo' ? 'fn-qbo' : 'fn-st';
+  const rcId = key === 'qbo' ? 'rc-qbo' : 'rc-st';
+  setZoneLoading(z, fnId, rcId, f.name, key);
 }
 
-function sc(v, l, cls) {
-  return `<div class="sc ${cls}"><div class="sv">${typeof v==='number'?v.toLocaleString():v}</div><div class="sl2">${l}</div></div>`;
+function checkReady() {
+  const ok = FILES.qbo && FILES.st;
+  document.getElementById('btn-run').disabled = !ok;
+  const hint = document.getElementById('run-hint');
+  hint.textContent = ok ? 'Both files ready — click Run to begin.' : 'Upload both files to begin.';
+  hint.style.color = ok ? 'var(--teal-d)' : 'var(--muted)';
 }
 
-function renderStats(d) {
-  document.getElementById('sg-in').innerHTML =
-    sc(d.qbo_records,  'QBO Records', '') +
-    sc(d.st_records,   'ST Records',  '') +
-    sc(d.total_output, 'Total Rows',  '');
+/* ─────────────────────────────────────────────────────────
+   EXCEL READER  (auto-detects header row)
+───────────────────────────────────────────────────────── */
+async function readExcel(file, requiredCols) {
+  const buf = await file.arrayBuffer();
+  const wb  = XLSX.read(buf, { type:'array', cellDates:true, raw:false });
+  const ws  = wb.Sheets[wb.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:false });
 
-  document.getElementById('sg-cls').innerHTML =
-    sc(d.exact,         'Exact Match',     'ok') +
-    sc(d.tax_only_diff, 'Tax Diff Only',   '') +
-    sc(d.amt_diff,      'Amount Diff',     d.amt_diff  > 0 ? 'warn' : '') +
-    sc(d.both_diff,     'Both Diff',       d.both_diff > 0 ? 'bad'  : '') +
-    sc(d.miss_qbo,      'Missing in QBO',  d.miss_qbo  > 0 ? 'info' : '') +
-    sc(d.miss_st,       'Missing in ST',   d.miss_st   > 0 ? 'info' : '') +
-    sc(d.review,        'Review',          d.review    > 0 ? 'pur'  : '');
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(raw.length, 40); i++) {
+    const cells = raw[i].map(c => String(c).trim());
+    if (requiredCols.every(rc => cells.includes(rc))) { headerIdx = i; break; }
+  }
+  if (headerIdx < 0)
+    throw new Error(
+      `Required columns [${requiredCols.join(', ')}] not found in "${file.name}".\n` +
+      `Please verify you uploaded the correct file.`
+    );
 
-  document.getElementById('sg-out').innerHTML =
-    sc(d.tax_sheet_rows,   'Tax Recon Rows',   d.tax_sheet_rows   > 0 ? 'bad'  : 'ok') +
-    sc(d.total_sheet_rows, 'Total Recon Rows', d.total_sheet_rows > 0 ? 'warn' : 'ok');
-
-  document.getElementById('sblock').style.display = 'block';
-  document.getElementById('leg').style.display = 'flex';
+  const headers = raw[headerIdx].map(c => String(c).trim());
+  const rows = [];
+  for (let i = headerIdx + 1; i < raw.length; i++) {
+    const r = raw[i];
+    if (r.every(c => c === '' || c == null)) continue;
+    const obj = {};
+    headers.forEach((h, j) => { obj[h] = r[j] ?? ''; });
+    rows.push(obj);
+  }
+  return rows;
 }
 
-function renderWarns(d) {
+/* ─────────────────────────────────────────────────────────
+   CLEANING HELPERS
+───────────────────────────────────────────────────────── */
+function cleanNum(v) {
+  if (v == null || v === '') return null;
+  const s = String(v).replace(/[$,\s]/g, '').trim();
+  if (!s || s === '-' || s.toLowerCase() === 'nan') return null;
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+function cleanInv(v) {
+  return String(v ?? '').trim().toUpperCase().replace(/^0+/, '') || String(v ?? '').trim().toUpperCase();
+}
+function parseDate(v) {
+  if (!v || v === '') return null;
+  if (v instanceof Date && !isNaN(v)) return v;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+function nonZero(val) {
+  return val !== null && !isNaN(val) && Math.abs(val) >= EPS;
+}
+
+/* ─────────────────────────────────────────────────────────
+   CLASSIFICATION
+   ─────────────────────────────────────────────────────────
+   taxNe  = tax differs
+   totNe  = total differs
+
+   Exact Match       → !taxNe && !totNe
+   Tax Difference    → taxNe  && !totNe    ← excluded from both sheets
+   Amount Difference → !taxNe && totNe
+   Both Difference   → taxNe  && totNe     ← in both sheets
+   Missing in QBO    → no QBO match
+   Missing in ST     → no ST match
+   Review            → duplicate key
+───────────────────────────────────────────────────────── */
+function classify(taxDiff, totDiff, inST, inQBO, isDup) {
+  if (isDup)  return 'Review';
+  if (!inST)  return 'Missing in ST';
+  if (!inQBO) return 'Missing in QBO';
+  const taxNe = nonZero(taxDiff);
+  const totNe = nonZero(totDiff);
+  if (!taxNe && !totNe) return 'Exact Match';
+  if ( taxNe &&  totNe) return 'Both Difference';
+  if ( taxNe && !totNe) return 'Tax Difference';   // excluded from output sheets
+  return 'Amount Difference';
+}
+
+/* ─────────────────────────────────────────────────────────
+   CORE RECONCILIATION
+───────────────────────────────────────────────────────── */
+function reconcile(qboRows, stRows) {
+
+  /* ── Build maps ── */
+  const qboMap = new Map();
+  for (const r of qboRows) {
+    const inv = cleanInv(r['Num']);
+    if (!inv || inv === 'NAN') continue;
+    if (!qboMap.has(inv)) qboMap.set(inv, []);
+    qboMap.get(inv).push({
+      inv,
+      date:       parseDate(r['Date']),
+      QBO_Tax:    cleanNum(r['Tax amount']),
+      QBO_Amount: cleanNum(r['Amount']),
+    });
+  }
+
+  const stMap = new Map();
+  for (const r of stRows) {
+    const inv = cleanInv(r['Invoice #']);
+    if (!inv || inv === 'NAN') continue;
+    if (!stMap.has(inv)) stMap.set(inv, []);
+    stMap.get(inv).push({
+      inv,
+      date:          parseDate(r['Invoice Date']),
+      ST_SUB_TOTAL:  cleanNum(r['Subtotal']),
+      ST_Tax:        cleanNum(r['Tax']),
+      ST_Amount:     cleanNum(r['Total']),
+      invoiceStatus: String(r['Invoice Status'] ?? '').trim(),
+    });
+  }
+
+  /* ── Detect duplicates ── */
+  const dupKeys = new Set();
+  for (const [k, v] of qboMap) { if (v.length > 1) dupKeys.add(k); }
+  for (const [k, v] of stMap)  { if (v.length > 1) dupKeys.add(k); }
+
+  /* ── Build all rows (outer join) ── */
+  const allKeys = new Set([...qboMap.keys(), ...stMap.keys()]);
+  const allRows = [];
+
+  for (const inv of allKeys) {
+    const qList = qboMap.get(inv) || [];
+    const sList = stMap.get(inv)  || [];
+    const isDup = dupKeys.has(inv);
+    const maxLen = Math.max(qList.length || 1, sList.length || 1);
+
+    for (let i = 0; i < maxLen; i++) {
+      const q = qList[i] || null;
+      const s = sList[i] || null;
+
+      const date    = s?.date    ?? q?.date    ?? null;
+      const taxDiff = (s?.ST_Tax    != null && q?.QBO_Tax    != null) ? s.ST_Tax    - q.QBO_Tax    : null;
+      const totDiff = (s?.ST_Amount != null && q?.QBO_Amount != null) ? s.ST_Amount - q.QBO_Amount : null;
+      const type    = classify(taxDiff, totDiff, !!s, !!q, isDup);
+
+      allRows.push({
+        date,
+        inv,
+        type,
+        invoiceStatus: s?.invoiceStatus ?? '',
+        ST_SUB_TOTAL:  s?.ST_SUB_TOTAL  ?? null,
+        ST_Tax:        s?.ST_Tax        ?? null,
+        ST_Amount:     s?.ST_Amount     ?? null,
+        QBO_Tax:       q?.QBO_Tax       ?? null,
+        QBO_Amount:    q?.QBO_Amount    ?? null,
+        taxDiff,
+        totDiff,
+      });
+    }
+  }
+
+  /* ── Sort: Both first, then Amount, then Missing, then Review, Exact last ── */
+  const ORDER = {
+    'Both Difference':0,'Amount Difference':1,
+    'Missing in QBO':2,'Missing in ST':3,
+    'Tax Difference':4,'Review':5,'Exact Match':6
+  };
+  allRows.sort((a, b) => {
+    const od = (ORDER[a.type] ?? 9) - (ORDER[b.type] ?? 9);
+    if (od !== 0) return od;
+    if (a.date && b.date) return a.date - b.date;
+    return a.inv.localeCompare(b.inv);
+  });
+
+  /* ── Sheet filters ──────────────────────────────────────────────
+     Tax Recon:        Tax Difference ≠ 0  AND  Total Difference ≠ 0
+                       (only "Both Difference" rows)
+     Total Amount Recon: Total Difference ≠ 0
+                       (Amount Difference + Both Difference)
+  ────────────────────────────────────────────────────────────── */
+  const taxRows = allRows.filter(r =>
+    nonZero(r.taxDiff) && nonZero(r.totDiff)
+    // equivalent to: type === 'Both Difference'
+  );
+
+  const totRows = allRows.filter(r =>
+    nonZero(r.totDiff)
+    // includes Amount Difference + Both Difference
+  );
+
+  /* ── Summary stats ── */
+  const cnt = t => allRows.filter(r => r.type === t).length;
+  const summary = {
+    qboRecords:  [...qboMap.values()].reduce((s, v) => s + v.length, 0),
+    stRecords:   [...stMap.values()].reduce((s, v)  => s + v.length, 0),
+    exact:       cnt('Exact Match'),
+    taxOnly:     cnt('Tax Difference'),       // excluded from output sheets
+    amtDiff:     cnt('Amount Difference'),
+    bothDiff:    cnt('Both Difference'),
+    missQBO:     cnt('Missing in QBO'),
+    missST:      cnt('Missing in ST'),
+    review:      cnt('Review'),
+    taxSheetRows: taxRows.length,
+    totSheetRows: totRows.length,
+    qboDups:     [...qboMap.values()].filter(v => v.length > 1).length,
+    stDups:      [...stMap.values()].filter(v  => v.length > 1).length,
+  };
+
+  return { taxRows, totRows, allRows, summary };
+}
+
+/* ─────────────────────────────────────────────────────────
+   EXCEL BUILDER  (ExcelJS)
+───────────────────────────────────────────────────────── */
+const TYPE_BG = {
+  'Both Difference':   'FEE2E2',
+  'Amount Difference': 'FEF3C7',
+  'Missing in QBO':    'DBEAFE',
+  'Missing in ST':     'EDE9FE',
+  'Tax Difference':    'FEF9C3',
+  'Review':            'F1F5F9',
+  'Exact Match':       'DCFCE7',
+};
+const TYPE_FG = {
+  'Both Difference':   '991B1B',
+  'Amount Difference': '92400E',
+  'Missing in QBO':    '1E40AF',
+  'Missing in ST':     '5B21B6',
+  'Tax Difference':    '854D0E',
+  'Review':            '475569',
+  'Exact Match':       '166534',
+};
+
+const MONEY  = '#,##0.00;(#,##0.00);"-"';
+const DATEFM = 'mm/dd/yyyy';
+const HFILL  = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF0D1117' } };
+const HFONT  = { name:'Calibri', bold:true, color:{ argb:'FFFFFFFF' }, size:11 };
+const BORDER = {
+  top:   { style:'thin', color:{ argb:'FFE2E8F0' } },
+  bottom:{ style:'thin', color:{ argb:'FFE2E8F0' } },
+  left:  { style:'thin', color:{ argb:'FFE2E8F0' } },
+  right: { style:'thin', color:{ argb:'FFE2E8F0' } },
+};
+
+const TAX_COLS = [
+  { h:'Date',           k:'date',          w:14 },
+  { h:'Number',         k:'inv',           w:16 },
+  { h:'Type',           k:'type',          w:20 },
+  { h:'Invoice Status', k:'invoiceStatus', w:16 },
+  { h:'ST _SUB_TOTAL',  k:'ST_SUB_TOTAL',  w:15 },
+  { h:'ST_Tax',         k:'ST_Tax',        w:13 },
+  { h:'ST_Amount',      k:'ST_Amount',     w:13 },
+  { h:'QBO_Tax',        k:'QBO_Tax',       w:13 },
+  { h:'QBO_Amount',     k:'QBO_Amount',    w:13 },
+  { h:'Tax Difference', k:'taxDiff',       w:16 },
+];
+const TOT_COLS = [
+  { h:'Date',             k:'date',          w:14 },
+  { h:'Number',           k:'inv',           w:16 },
+  { h:'Type',             k:'type',          w:20 },
+  { h:'Invoice Status',   k:'invoiceStatus', w:16 },
+  { h:'ST _SUB_TOTAL',    k:'ST_SUB_TOTAL',  w:15 },
+  { h:'ST_Tax',           k:'ST_Tax',        w:13 },
+  { h:'ST_Amount',        k:'ST_Amount',     w:13 },
+  { h:'QBO_Tax',          k:'QBO_Tax',       w:13 },
+  { h:'QBO_Amount',       k:'QBO_Amount',    w:13 },
+  { h:'Total Difference', k:'totDiff',       w:16 },
+];
+const MONEY_KEYS = new Set(['ST_SUB_TOTAL','ST_Tax','ST_Amount','QBO_Tax','QBO_Amount','taxDiff','totDiff']);
+
+async function buildExcel(taxRows, totRows) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Invoice Reconciliation Tool';
+  wb.created = new Date();
+
+  function writeSheet(name, rows, cols) {
+    const ws = wb.addWorksheet(name);
+    ws.views = [{ state:'frozen', ySplit:1 }];
+    ws.columns = cols.map(c => ({ header:c.h, key:c.k, width:c.w }));
+
+    // ── Header row ──
+    const hr = ws.getRow(1);
+    hr.height = 28;
+    hr.eachCell(cell => {
+      cell.fill      = HFILL;
+      cell.font      = HFONT;
+      cell.alignment = { horizontal:'center', vertical:'center', wrapText:true };
+      cell.border    = BORDER;
+    });
+    ws.autoFilter = { from:'A1', to:`${String.fromCharCode(64+cols.length)}1` };
+
+    // ── Data rows ──
+    rows.forEach((r, ri) => {
+      const row  = ws.getRow(ri + 2);
+      const bg   = TYPE_BG[r.type] || 'FFFFFF';
+      const fg   = TYPE_FG[r.type] || '1E2A3A';
+      const fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF'+bg } };
+
+      cols.forEach((col, ci) => {
+        const val  = r[col.k];
+        const cell = row.getCell(ci + 1);
+        cell.fill   = fill;
+        cell.border = BORDER;
+
+        if (col.k === 'date') {
+          cell.value     = val instanceof Date ? val : null;
+          if (cell.value) cell.numFmt = DATEFM;
+          cell.alignment = { horizontal:'center' };
+          cell.font      = { name:'Calibri', size:10 };
+
+        } else if (col.k === 'inv') {
+          cell.value     = val != null ? String(val) : null;
+          cell.alignment = { horizontal:'left' };
+          cell.font      = { name:'Calibri', size:10 };
+
+        } else if (col.k === 'type') {
+          cell.value     = val;
+          cell.font      = { name:'Calibri', size:10, bold:true, color:{ argb:'FF'+fg } };
+          cell.alignment = { horizontal:'center' };
+
+        } else if (col.k === 'invoiceStatus') {
+          cell.value     = val || null;
+          cell.font      = { name:'Calibri', size:10 };
+          cell.alignment = { horizontal:'center' };
+
+        } else if (MONEY_KEYS.has(col.k)) {
+          cell.value = (val !== null && val !== undefined) ? val : null;
+          if (cell.value !== null) cell.numFmt = MONEY;
+          cell.alignment = { horizontal:'right' };
+
+          // Highlight non-zero difference columns
+          const isDiffCol = col.k === 'taxDiff' || col.k === 'totDiff';
+          const isNZ = isDiffCol && val !== null && nonZero(val);
+          cell.font = { name:'Calibri', size:10,
+            bold:  isNZ,
+            color: { argb: isNZ ? 'FFC0392B' : 'FF1E2A3A' }
+          };
+
+        } else {
+          cell.value = val;
+          cell.font  = { name:'Calibri', size:10 };
+        }
+      });
+      row.commit();
+    });
+
+    // ── Footer ──
+    const fr = rows.length + 3;
+    const fc = ws.getCell(`A${fr}`);
+    fc.value = `${name} — Total rows: ${rows.length}`;
+    fc.font  = { name:'Calibri', bold:true, size:10, color:{ argb:'FF475569' } };
+  }
+
+  writeSheet('Tax Recon',          taxRows, TAX_COLS);
+  writeSheet('Total Amount Recon', totRows, TOT_COLS);
+
+  const buf = await wb.xlsx.writeBuffer();
+  return new Blob([buf], {
+    type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  });
+}
+
+/* ─────────────────────────────────────────────────────────
+   UI HELPERS
+───────────────────────────────────────────────────────── */
+function showMsg(type, html) {
+  const icon = type==='proc' ? '<div class="spin"></div>' : '';
+  document.getElementById('status-msg').innerHTML =
+    `<div class="smsg ${type}">${icon}<span>${html}</span></div>`;
+}
+
+function renderStats(s) {
+  const items = [
+    { l:'QBO Records',      v:s.qboRecords,    c:'' },
+    { l:'ST Records',       v:s.stRecords,     c:'' },
+    { l:'Exact Match',      v:s.exact,         c:'s-ok' },
+    { l:'Both Difference',  v:s.bothDiff,      c:s.bothDiff  > 0 ? 's-bad' : '' },
+    { l:'Amount Difference',v:s.amtDiff,       c:s.amtDiff   > 0 ? 's-warn': '' },
+    { l:'Tax-Only Diff*',   v:s.taxOnly,       c:'' },
+    { l:'Missing in QBO',   v:s.missQBO,       c:s.missQBO   > 0 ? 's-info': '' },
+    { l:'Missing in ST',    v:s.missST,        c:s.missST    > 0 ? 's-info': '' },
+    { l:'Review',           v:s.review,        c:s.review    > 0 ? 's-warn': '' },
+    { l:'Tax Recon Rows',   v:s.taxSheetRows,  c:'s-info' },
+    { l:'Total Recon Rows', v:s.totSheetRows,  c:'s-info' },
+  ];
+  document.getElementById('stats-grid').innerHTML = items.map(i =>
+    `<div class="stat ${i.c}">
+       <div class="stat-v">${i.v.toLocaleString()}</div>
+       <div class="stat-l">${i.l}</div>
+     </div>`
+  ).join('');
+}
+
+function renderWarns(s) {
   const w = [];
-  if (d.qbo_dups > 0) w.push(`${d.qbo_dups} duplicate invoice number(s) in QBO — classified as "Review".`);
-  if (d.st_dups  > 0) w.push(`${d.st_dups}  duplicate invoice number(s) in ServiceTitan — classified as "Review".`);
-  if (d.tax_only_diff > 0) w.push(`${d.tax_only_diff} invoice(s) have a tax-only difference (total matches) — excluded from both sheets per reconciliation rules.`);
-  if (!w.length) return;
-  document.getElementById('wl').innerHTML = '<strong>ℹ Notices:</strong><br>' + w.map(x => `<li>${x}</li>`).join('');
-  document.getElementById('ws').classList.add('vis');
+  if (s.qboDups > 0) w.push(`${s.qboDups} duplicate invoice number(s) found in QBO — routed to "Review".`);
+  if (s.stDups  > 0) w.push(`${s.stDups}  duplicate invoice number(s) found in ServiceTitan — routed to "Review".`);
+  if (s.taxOnly > 0) w.push(`${s.taxOnly} invoice(s) have tax-only differences (total matches) — excluded from both output sheets per updated rules.`);
+  const box = document.getElementById('warn-box');
+  const lst = document.getElementById('warn-list');
+  if (w.length) {
+    lst.innerHTML = w.map(x => `<li>${x}</li>`).join('');
+    box.classList.add('vis');
+  } else {
+    box.classList.remove('vis');
+  }
+}
+
+function tick() { return new Promise(r => setTimeout(r, 20)); }
+
+/* ─────────────────────────────────────────────────────────
+   MAIN RUN
+───────────────────────────────────────────────────────── */
+async function runRecon() {
+  OUTPUT_BLOB = null;
+  document.getElementById('sec-results').classList.remove('hidden');
+  document.getElementById('sec-download').classList.add('hidden');
+  document.getElementById('warn-box').classList.remove('vis');
+  document.getElementById('stats-grid').innerHTML = '';
+  document.getElementById('btn-run').disabled = true;
+
+  showMsg('proc', 'Reading files…');
+  await tick();
+
+  try {
+    const QBO_REQ = ['Date','Num','Tax amount','Amount'];
+    const ST_REQ  = ['Invoice Date','Invoice #','Invoice Status','Subtotal','Tax','Total'];
+
+    showMsg('proc', 'Parsing QuickBooks Online export…');
+    await tick();
+    const qboRows = await readExcel(FILES.qbo, QBO_REQ);
+
+    showMsg('proc', 'Parsing ServiceTitan export…');
+    await tick();
+    const stRows = await readExcel(FILES.st, ST_REQ);
+
+    // Update row counts with actual data row counts
+    document.getElementById('rc-qbo').textContent = `Rows: ${qboRows.length.toLocaleString()}`;
+    document.getElementById('rc-st').textContent  = `Rows: ${stRows.length.toLocaleString()}`;
+
+    showMsg('proc', `Reconciling ${qboRows.length.toLocaleString()} QBO + ${stRows.length.toLocaleString()} ST records…`);
+    await tick();
+    const { taxRows, totRows, summary } = reconcile(qboRows, stRows);
+
+    showMsg('proc', 'Building Excel output…');
+    await tick();
+    OUTPUT_BLOB = await buildExcel(taxRows, totRows);
+
+    showMsg('ok',
+      `✓ Reconciliation complete — ` +
+      `Tax Recon: <strong>${taxRows.length}</strong> rows · ` +
+      `Total Amount Recon: <strong>${totRows.length}</strong> rows`
+    );
+
+    renderStats(summary);
+    renderWarns(summary);
+
+    document.getElementById('dl-desc').textContent =
+      `Tax Recon (${taxRows.length} rows) · Total Amount Recon (${totRows.length} rows)`;
+    document.getElementById('sec-download').classList.remove('hidden');
+    document.getElementById('sec-results').scrollIntoView({ behavior:'smooth', block:'start' });
+
+  } catch(err) {
+    showMsg('err', '⚠ ' + err.message);
+    console.error(err);
+  } finally {
+    document.getElementById('btn-run').disabled = false;
+  }
+}
+
+function downloadFile() {
+  if (!OUTPUT_BLOB) { alert('No output available. Run reconciliation first.'); return; }
+  saveAs(OUTPUT_BLOB, 'Invoice_Reconciliation.xlsx');
 }
 </script>
 </body>
